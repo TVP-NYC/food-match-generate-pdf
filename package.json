@@ -1,0 +1,27 @@
+{
+  "name": "food-match-generate-pdf",
+  "version": "1.0.0",
+  "description": "AWS Lambda to generate Shopify order summary PDFs",
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "test": "nodemon --env-file=.env server.js",
+    "server:local": "node --env-file=.env server.js",
+    "dev": "npm run server:local",
+    "start": "node --env-file=.env server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "graphql-request": "^7.1.2",
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
