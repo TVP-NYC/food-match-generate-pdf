@@ -14,7 +14,7 @@ export const handler = async (event, context) => {
 
     try {
         const { orderIds } = validatePostRequest(event);
-        logger.info("handler - Order IDs received", { orderCount: orderIds.length });
+        logger.info("handler - Order IDs received", { orderCount: orderIds.length, orderIds: orderIds.join(",") });
 
         const orders = [];
         for (const orderId of orderIds) {
@@ -32,6 +32,9 @@ export const handler = async (event, context) => {
         const pdfBytes = await buildOrdersPdf(orders);
         logger.info("pdfService.buildOrdersPdf - PDF generated", {
             orderCount: orders.length,
+            orderIds: orderIds.join(","),
+            lineItemsCount: orders.reduce((sum, order) => sum + (order.lineItems ? order.lineItems.length : 0), 0),
+            lineItems: orders.flatMap((order) => order.lineItems.map((item) => item.id ?? "N/A")).join(","),
             bytes: pdfBytes.length,
         });
 

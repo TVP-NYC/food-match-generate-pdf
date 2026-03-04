@@ -37,6 +37,43 @@ app.get("/health", (_req, res) => {
     res.status(200).json({ ok: true, service: "food-match-generate-pdf" });
 });
 
+app.options("/generate-pdf", async (req, res) => {
+    const logger = createLogger({ scope: "local-server" });
+    logger.start("server.request", { method: req.method, path: req.path });
+
+    try {
+        const lambdaResponse = await runLambdaFromRequest(req);
+        if (lambdaResponse.headers) {
+            for (const [key, value] of Object.entries(lambdaResponse.headers)) {
+                res.setHeader(key, value);
+            }
+        }
+
+        const statusCode = lambdaResponse.statusCode || 204;
+        logger.end("server.request", {
+            method: req.method,
+            path: req.path,
+            statusCode,
+        });
+        res.status(statusCode).send(lambdaResponse.body || "");
+    } catch (error) {
+        logger.error("server.request - Request failed", {
+            method: req.method,
+            path: req.path,
+            message: error && error.message ? error.message : "Unexpected local server error",
+        });
+        logger.end("server.request", {
+            method: req.method,
+            path: req.path,
+            statusCode: 500,
+        });
+        res.status(500).json({
+            code: "LOCAL_SERVER_ERROR",
+            message: error && error.message ? error.message : "Unexpected local server error",
+        });
+    }
+});
+
 app.post("/generate-pdf", async (req, res) => {
     const logger = createLogger({ scope: "local-server" });
     logger.start("server.request", { method: req.method, path: req.path });
@@ -48,6 +85,20 @@ app.post("/generate-pdf", async (req, res) => {
             for (const [key, value] of Object.entries(lambdaResponse.headers)) {
                 res.setHeader(key, value);
             }
+        }
+
+        const responseMode = String(req.headers["x-pdf-response-mode"] || "").toLowerCase();
+
+        if (lambdaResponse.isBase64Encoded && responseMode === "base64-json") {
+            const statusCode = lambdaResponse.statusCode || 200;
+            logger.end("server.request", {
+                method: req.method,
+                path: req.path,
+                statusCode,
+                mode: "base64-json",
+            });
+            res.status(statusCode).json(lambdaResponse);
+            return;
         }
 
         const statusCode = lambdaResponse.statusCode || 200;

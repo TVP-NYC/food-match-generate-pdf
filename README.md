@@ -12,8 +12,13 @@ The codebase uses ESM (`"type": "module"`).
 - `SHOPIFY_ACCESS_TOKEN` (Shopify Admin API access token)
 - `SHOPIFY_API_VERSION` (optional, default: `2026-01`)
 - `COMPANY_LOGO_PATH` (optional local file path, default: `assets/company-logo.png`)
+- `CORS_ALLOW_ORIGIN` (optional, default: `*`)
+- `LOCAL_REQUIRE_AUTH` (optional: `true`/`false`, default: `false`)
 - `LOG_LEVEL` (optional: `error`, `warn`, `info`; default: `info`)
 - `LOG_FORMAT` (optional: `pretty` or `json`; default: `pretty`)
+
+Notes:
+- CORS headers and optional bearer validation are enforced in `app.js` so behavior is consistent between local Express and AWS Lambda.
 
 ## Request contract
 

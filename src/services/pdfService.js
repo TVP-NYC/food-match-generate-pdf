@@ -19,7 +19,7 @@ const BRAND_LEFT = "FOOD";
 const BRAND_RIGHT = "Match";
 const COMPANY_LOGO_PATH = process.env.COMPANY_LOGO_PATH || "assets/company-logo.png";
 
-const CARD_WIDTH = ((PAGE_WIDTH - PAGE_MARGIN * 2 - COLUMN_GAP) / 2) * 0.68;
+const CARD_WIDTH = ((PAGE_WIDTH - PAGE_MARGIN * 2 - COLUMN_GAP) / 2) * 0.65;
 const INTERNAL_PADDING = 10;
 
 function formatDate(input) {
