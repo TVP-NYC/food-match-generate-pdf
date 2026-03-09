@@ -1,5 +1,4 @@
 node_modules/
-openspec/
 .env
 .DS_Store
 npm-debug.log*
