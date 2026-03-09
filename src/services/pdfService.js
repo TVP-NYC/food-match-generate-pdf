@@ -8,7 +8,7 @@ const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
 const COLUMN_GAP = 44;
 const CARD_HEIGHT = 125;
-const LOGO_AREA_HEIGHT = 34;
+const LOGO_AREA_HEIGHT = 16;
 const FOOTER_NOTE = "Sample was prepared in a facility that contains milk, nuts, soy & wheat";
 
 const HEADER_FONT_SIZE = 7;
@@ -157,7 +157,7 @@ function drawCompanyLogo(page, logoImage, x, topY, centerX, boldFont) {
     const logoBoxHeight = LOGO_AREA_HEIGHT;
     const widthScale = logoBoxWidth / logoImage.width;
     const heightScale = logoBoxHeight / logoImage.height;
-    const scale = Math.min(widthScale, heightScale);
+    const scale = Math.min(widthScale, heightScale) * 0.60;
 
     const drawWidth = logoImage.width * scale;
     const drawHeight = logoImage.height * scale;
