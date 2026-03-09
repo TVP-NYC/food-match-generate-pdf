@@ -15,6 +15,7 @@ const HEADER_FONT_SIZE = 7;
 const TITLE_FONT_SIZE = 12;
 const BODY_FONT_SIZE = 8;
 const SMALL_FONT_SIZE = 7;
+const WARNING_LINE_SPACING = 9;
 const BRAND_LEFT = "FOOD";
 const BRAND_RIGHT = "Match";
 const COMPANY_LOGO_PATH = process.env.COMPANY_LOGO_PATH || "assets/company-logo.png";
@@ -201,7 +202,7 @@ function drawProductCard(page, lineItem, layout, fonts, logoImage) {
     drawCenteredText(page, packedLine, regularFont, BODY_FONT_SIZE, centerX, packedY);
     drawCenteredText(page, warningLines[0] || "", regularFont, SMALL_FONT_SIZE, centerX, warningY);
     if (warningLines[1]) {
-        drawCenteredText(page, warningLines[1], regularFont, SMALL_FONT_SIZE, centerX, warningY - 12);
+        drawCenteredText(page, warningLines[1], regularFont, SMALL_FONT_SIZE, centerX, warningY - WARNING_LINE_SPACING);
     }
 }
 
