@@ -1,7 +1,17 @@
 import { ValidationError } from "./errors.js";
 
 function parseBody(event) {
-    if (!event || !event.body) {
+    if (!event) {
+        throw new ValidationError("Event is required", "INVALID_INPUT");
+    }
+
+    // Direct Lambda invocation: event already contains the payload
+    if (event.orderIds) {
+        return event;
+    }
+
+    // API Gateway proxy event: body is a JSON string
+    if (!event.body) {
         throw new ValidationError("Request body is required", "INVALID_INPUT");
     }
 
@@ -31,17 +41,12 @@ function validateOrderIds(orderIds) {
     return cleanedOrderIds;
 }
 
-function validatePostRequest(event) {
-    if (!event || event.httpMethod !== "POST") {
-        throw new ValidationError("Only POST is allowed", "INVALID_METHOD");
-    }
-
+function validateRequest(event) {
     const body = parseBody(event);
     const orderIds = validateOrderIds(body.orderIds);
-
     return { orderIds };
 }
 
 export {
-    validatePostRequest,
+    validateRequest,
 };

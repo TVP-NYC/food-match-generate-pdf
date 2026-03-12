@@ -1,43 +1,16 @@
 # Tasks: Shopify Order PDF Lambda
 
-## 1. Scaffold and configuration
-- [x] Create source tree:
-  - [x] `src/handler/handler.js`
-  - [x] `src/services/shopifyService.js`
-  - [x] `src/services/pdfService.js`
-  - [x] `src/utils/{validation,response,errors,logger}.js`
-- [x] Add minimal dependencies (prefer `pdf-lib`, avoid unnecessary packages).
-- [x] Define required env vars and defaults.
+## Status: ✅ Complete
 
-## 2. Input validation and request handling
-- [x] Implement POST-only guard in handler.
-- [x] Parse JSON safely and validate `orderIds` contract.
-- [x] Return `400` for invalid payloads with clear error messages.
-- [x] Add request-scoped logging context (`requestId`).
+## Completed
 
-## 3. Shopify GraphQL service
-- [x] Implement authenticated GraphQL request helper.
-- [x] Implement `getOrderById(orderId)` and normalize response.
-- [x] Implement optional `enrichLineItems` for missing product fields.
-- [x] Map missing order to `NotFoundError` (`404`).
-- [x] Map API/network failures to internal errors (`500`).
-
-## 4. PDF service
-- [x] Implement `buildOrdersPdf(orders)` using `pdf-lib`.
-- [x] Add order header and line-item listing with pagination support.
-- [x] Return bytes suitable for base64 output.
-
-## 5. Response and error mapping
-- [x] Implement response utilities for PDF and JSON errors.
-- [x] Return `200` with headers:
-  - [x] `Content-Type: application/pdf`
-  - [x] `Content-Disposition: attachment; filename="shopify-orders-summary.pdf"`
-  - [x] `isBase64Encoded: true`
-- [x] Return `404` when any requested order is not found.
-- [x] Return `500` for unexpected failures.
-
-## 6. Production hardening
-- [x] Ensure logs cover start/end and per-order processing checkpoints.
-- [x] Confirm no secrets are logged.
-- [x] Add concise usage/deployment notes for Lambda environment setup.
-- [ ] Run a local sanity test with sample `orderIds` payload.
+- [x] Bootstrap project with `node-lambda` (removed Express / web server)
+- [x] Implement Shopify auth via client credentials grant with in-memory token cache
+- [x] GraphQL order query with line item and product data
+- [x] Product enrichment for missing SKU / vendor / product type fields
+- [x] PDF generation with `pdf-lib` — 2-column label card layout
+- [x] Lambda handler with typed error handling (400 / 404 / 500)
+- [x] Input validation for direct invocation and API Gateway proxy events
+- [x] Configure `read_orders`, `read_all_orders`, `read_customers`, `read_products` scopes in `shopify.app.toml`
+- [x] Deploy app to Shopify and verify scopes on installed store
+- [x] End-to-end test: real order `gid://shopify/Order/6800123035844` → PDF generated ✓

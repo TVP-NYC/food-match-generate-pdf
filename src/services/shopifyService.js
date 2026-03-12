@@ -2,6 +2,73 @@ import { GraphQLClient, gql, ClientError } from "graphql-request";
 import { NotFoundError, InternalError, ValidationError } from "../utils/errors.js";
 
 const DEFAULT_SHOPIFY_API_VERSION = "2026-01";
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
+
+// Module-level token cache — reused across Lambda warm starts
+let cachedToken = null;
+let tokenExpiresAt = 0;
+let cachedClient = null;
+
+function getShopifyConfig() {
+    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
+    const clientId = process.env.SHOPIFY_CLIENT_ID;
+    const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+    const apiVersion = process.env.SHOPIFY_API_VERSION || DEFAULT_SHOPIFY_API_VERSION;
+
+    if (!storeDomain || !clientId || !clientSecret) {
+        throw new InternalError(
+            "Missing Shopify env vars: SHOPIFY_STORE_DOMAIN, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET",
+            "SHOPIFY_CONFIG_ERROR"
+        );
+    }
+
+    return { storeDomain, clientId, clientSecret, apiVersion };
+}
+
+async function getAccessToken() {
+    const now = Date.now();
+
+    if (cachedToken && now < tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS) {
+        console.log("[shopify] Using cached access token");
+        return cachedToken;
+    }
+
+    const config = getShopifyConfig();
+    const tokenUrl = `https://${config.storeDomain}/admin/oauth/access_token`;
+
+    console.log("[shopify] Fetching new access token via client credentials grant");
+
+    const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            client_id: config.clientId,
+            client_secret: config.clientSecret,
+            grant_type: "client_credentials",
+        }),
+    });
+
+    if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new InternalError(
+            `Shopify token request failed: ${response.status} ${text}`,
+            "SHOPIFY_AUTH_ERROR"
+        );
+    }
+
+    const data = await response.json();
+
+    cachedToken = data.access_token;
+    tokenExpiresAt = now + data.expires_in * 1000;
+    cachedClient = null; // reset GraphQL client so it picks up the new token
+
+    console.log(`[shopify] Access token obtained, expires in ${data.expires_in}s`);
+    return cachedToken;
+}
+
+function isValidOrderGid(orderId) {
+    return typeof orderId === "string" && /^gid:\/\/shopify\/Order\/\d+$/.test(orderId.trim());
+}
 
 const ORDER_QUERY = gql`
     query GetOrder($id: ID!) {
@@ -72,46 +139,25 @@ const PRODUCTS_QUERY = gql`
     }
 `;
 
-let cachedClient;
-let cachedEndpoint;
-let cachedToken;
+async function getGraphQLClient() {
+    const config = getShopifyConfig();
+    const token = await getAccessToken();
+    const endpoint = `https://${config.storeDomain}/admin/api/${config.apiVersion}/graphql.json`;
 
-function getShopifyConfig() {
-    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
-    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
-    const apiVersion = process.env.SHOPIFY_API_VERSION || DEFAULT_SHOPIFY_API_VERSION;
-
-    if (!storeDomain || !accessToken) {
-        throw new InternalError("Shopify environment variables are not configured", "SHOPIFY_CONFIG_ERROR");
+    if (!cachedClient) {
+        cachedClient = new GraphQLClient(endpoint, {
+            headers: { "X-Shopify-Access-Token": token },
+        });
     }
 
-    return {
-        storeDomain,
-        accessToken,
-        apiVersion,
-    };
-}
-
-function isValidOrderGid(orderId) {
-    return typeof orderId === "string" && /^gid:\/\/shopify\/Order\/\d+$/.test(orderId.trim());
+    return cachedClient;
 }
 
 async function runGraphqlQuery(query, variables) {
-    const config = getShopifyConfig();
-    const endpoint = `https://${config.storeDomain}/admin/api/${config.apiVersion}/graphql.json`;
-
-    if (!cachedClient || cachedEndpoint !== endpoint || cachedToken !== config.accessToken) {
-        cachedClient = new GraphQLClient(endpoint, {
-        headers: {
-            "X-Shopify-Access-Token": config.accessToken,
-        },
-        });
-        cachedEndpoint = endpoint;
-        cachedToken = config.accessToken;
-    }
+    const client = await getGraphQLClient();
 
     try {
-        return await cachedClient.request(query, variables);
+        return await client.request(query, variables);
     } catch (error) {
         if (error instanceof ClientError) {
             if (error.response && error.response.status === 404) {
@@ -121,14 +167,14 @@ async function runGraphqlQuery(query, variables) {
             throw new InternalError("Shopify GraphQL returned errors", "SHOPIFY_GRAPHQL_ERROR", {
                 status: error.response ? error.response.status : undefined,
                 errors:
-                error.response && Array.isArray(error.response.errors)
-                    ? error.response.errors.map((entry) => entry.message)
-                    : [error.message],
+                    error.response && Array.isArray(error.response.errors)
+                        ? error.response.errors.map((e) => e.message)
+                        : [error.message],
             });
         }
 
         throw new InternalError("Failed to connect to Shopify", "SHOPIFY_NETWORK_ERROR", {
-            reason: error && error.message ? error.message : "unknown-network-error",
+            reason: error && error.message ? error.message : "unknown",
         });
     }
 }
@@ -136,12 +182,14 @@ async function runGraphqlQuery(query, variables) {
 function normalizeOrder(order) {
     const lineItems = (order.lineItems && order.lineItems.edges ? order.lineItems.edges : []).map((edge) => {
         const line = edge.node;
-        const unitAmount = line.originalUnitPriceSet && line.originalUnitPriceSet.shopMoney
-        ? Number.parseFloat(line.originalUnitPriceSet.shopMoney.amount)
-        : 0;
-        const totalAmount = line.discountedTotalSet && line.discountedTotalSet.shopMoney
-        ? Number.parseFloat(line.discountedTotalSet.shopMoney.amount)
-        : unitAmount * line.quantity;
+        const unitAmount =
+            line.originalUnitPriceSet && line.originalUnitPriceSet.shopMoney
+                ? Number.parseFloat(line.originalUnitPriceSet.shopMoney.amount)
+                : 0;
+        const totalAmount =
+            line.discountedTotalSet && line.discountedTotalSet.shopMoney
+                ? Number.parseFloat(line.discountedTotalSet.shopMoney.amount)
+                : unitAmount * line.quantity;
 
         return {
             id: line.id,
@@ -153,8 +201,8 @@ function normalizeOrder(order) {
             totalPrice: totalAmount,
             currencyCode:
                 (line.originalUnitPriceSet &&
-                line.originalUnitPriceSet.shopMoney &&
-                line.originalUnitPriceSet.shopMoney.currencyCode) ||
+                    line.originalUnitPriceSet.shopMoney &&
+                    line.originalUnitPriceSet.shopMoney.currencyCode) ||
                 "USD",
             productId: line.variant && line.variant.product ? line.variant.product.id : null,
             productTitle: line.variant && line.variant.product ? line.variant.product.title : null,
@@ -163,9 +211,9 @@ function normalizeOrder(order) {
             imageUrl:
                 (line.variant && line.variant.image && line.variant.image.url) ||
                 (line.variant &&
-                line.variant.product &&
-                line.variant.product.featuredImage &&
-                line.variant.product.featuredImage.url) ||
+                    line.variant.product &&
+                    line.variant.product.featuredImage &&
+                    line.variant.product.featuredImage.url) ||
                 null,
         };
     });
@@ -180,11 +228,12 @@ function normalizeOrder(order) {
     };
 }
 
-async function getOrderById(orderId, logger) {
+async function getOrderById(orderId) {
     if (!isValidOrderGid(orderId)) {
         throw new ValidationError(`Invalid Shopify order GID: ${orderId}`, "INVALID_ORDER_ID");
     }
 
+    console.log(`[shopify] Fetching order ${orderId}`);
     const data = await runGraphqlQuery(ORDER_QUERY, { id: orderId.trim() });
     const order = data && data.order ? data.order : null;
 
@@ -192,80 +241,53 @@ async function getOrderById(orderId, logger) {
         throw new NotFoundError(`Order not found: ${orderId}`, "ORDER_NOT_FOUND", { orderId });
     }
 
-    if (logger) {
-        logger.info("shopify.order.normalized", {
-            orderId,
-            lineItems: order.lineItems && order.lineItems.edges ? order.lineItems.edges.length : 0,
-        });
-    }
-
-    return normalizeOrder(order);
+    const normalized = normalizeOrder(order);
+    console.log(`[shopify] Order ${orderId} fetched — ${normalized.lineItems.length} line items`);
+    return normalized;
 }
 
 async function fetchProductsByIds(productIds) {
-    if (!productIds || productIds.length === 0) {
-        return new Map();
-    }
+    if (!productIds || productIds.length === 0) return new Map();
 
     const data = await runGraphqlQuery(PRODUCTS_QUERY, { ids: productIds });
     const products = data && data.nodes ? data.nodes : [];
 
     const byId = new Map();
     for (const product of products) {
-        if (product && product.id) {
-            byId.set(product.id, product);
-        }
+        if (product && product.id) byId.set(product.id, product);
     }
     return byId;
 }
 
-async function enrichLineItems(order, logger) {
-    const missingProductItems = order.lineItems.filter(
-        (lineItem) => lineItem.productId && (!lineItem.productTitle || !lineItem.vendor)
+async function enrichLineItems(order) {
+    const missing = order.lineItems.filter(
+        (item) => item.productId && (!item.productTitle || !item.vendor)
     );
 
-    if (missingProductItems.length === 0) {
-        return order;
-    }
+    if (missing.length === 0) return order;
 
-    const uniqueIds = [...new Set(missingProductItems.map((item) => item.productId))];
-    if (logger) {
-        logger.info("shopify.products.enrich.start", { productCount: uniqueIds.length });
-    }
+    const uniqueIds = [...new Set(missing.map((item) => item.productId))];
+    console.log(`[shopify] Enriching ${uniqueIds.length} products`);
 
     const productById = await fetchProductsByIds(uniqueIds);
-    const lineItems = order.lineItems.map((lineItem) => {
-        if (!lineItem.productId) {
-            return lineItem;
-        }
 
-        const product = productById.get(lineItem.productId);
-        if (!product) {
-            return lineItem;
-        }
+    const lineItems = order.lineItems.map((item) => {
+        if (!item.productId) return item;
+        const product = productById.get(item.productId);
+        if (!product) return item;
 
         return {
-            ...lineItem,
-            productTitle: lineItem.productTitle || product.title || null,
-            vendor: lineItem.vendor || product.vendor || null,
-            productType: lineItem.productType || product.productType || null,
+            ...item,
+            productTitle: item.productTitle || product.title || null,
+            vendor: item.vendor || product.vendor || null,
+            productType: item.productType || product.productType || null,
             imageUrl:
-                lineItem.imageUrl ||
+                item.imageUrl ||
                 (product.featuredImage && product.featuredImage.url ? product.featuredImage.url : null),
         };
     });
 
-    if (logger) {
-        logger.info("shopify.products.enrich.success", { productCount: uniqueIds.length });
-    }
-
-    return {
-        ...order,
-        lineItems,
-    };
+    return { ...order, lineItems };
 }
 
-export {
-    getOrderById,
-    enrichLineItems,
-};
+export { getOrderById, enrichLineItems };
