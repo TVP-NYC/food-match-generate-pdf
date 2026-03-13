@@ -32,7 +32,7 @@ export const handler = async (event, context) => {
         const pdfBytes = await buildOrdersPdf(orders);
         console.log(`[handler] PDF generated — ${pdfBytes.length} bytes`);
 
-        const pdfResponse = buildPdfResponse(pdfBytes, "labels.pdf");
+        const pdfResponse = buildPdfResponse(pdfBytes, "Labels.pdf");
 
         // The Shopify extension calls with X-PDF-Response-Mode: base64-json
         // and expects the full Lambda response envelope as JSON body,

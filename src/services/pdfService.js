@@ -7,7 +7,10 @@ const PAGE_MARGIN = 48;
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
 const COLUMN_GAP = 44;
-const CARD_HEIGHT = 125;
+const ROWS_PER_PAGE = 7;
+const COLUMNS_PER_PAGE = 2;
+const ROW_GAP = 10;
+const CARD_HEIGHT = (PAGE_HEIGHT - PAGE_MARGIN * 2 - ROW_GAP * (ROWS_PER_PAGE - 1)) / ROWS_PER_PAGE;
 const LOGO_AREA_HEIGHT = 16;
 const FOOTER_NOTE = "Sample was prepared in a facility that contains milk, nuts, soy & wheat";
 
@@ -15,12 +18,13 @@ const HEADER_FONT_SIZE = 7;
 const TITLE_FONT_SIZE = 12;
 const BODY_FONT_SIZE = 8;
 const SMALL_FONT_SIZE = 7;
+const TITLE_LINE_SPACING = 8;
 const WARNING_LINE_SPACING = 9;
 const BRAND_LEFT = "FOOD";
 const BRAND_RIGHT = "Match";
 const COMPANY_LOGO_PATH = process.env.COMPANY_LOGO_PATH || "assets/company-logo.png";
 
-const CARD_WIDTH = ((PAGE_WIDTH - PAGE_MARGIN * 2 - COLUMN_GAP) / 2) * 0.65;
+const CARD_WIDTH = ((PAGE_WIDTH - PAGE_MARGIN * 2 - COLUMN_GAP) / COLUMNS_PER_PAGE) * 0.65;
 const INTERNAL_PADDING = 10;
 
 function formatDate(input) {
@@ -76,7 +80,7 @@ function drawCenteredText(page, text, font, size, centerX, y, color = rgb(0, 0, 
     });
 }
 
-function splitCenteredLines(text, font, size, maxWidth) {
+function splitCenteredLines(text, font, size, maxWidth, maxLines = Number.POSITIVE_INFINITY) {
     const sanitized = sanitizeTextForPdf(text);
     if (!sanitized) {
         return [];
@@ -97,7 +101,7 @@ function splitCenteredLines(text, font, size, maxWidth) {
             lines.push(current);
             current = word;
         } else {
-            lines.push(word);
+            lines.push(fitText(word, font, size, maxWidth));
         }
     }
 
@@ -105,7 +109,18 @@ function splitCenteredLines(text, font, size, maxWidth) {
         lines.push(current);
     }
 
-    return lines;
+    if (lines.length <= maxLines) {
+        return lines;
+    }
+
+    const preservedLines = lines.slice(0, Math.max(maxLines - 1, 0));
+    const overflowText = lines.slice(Math.max(maxLines - 1, 0)).join(" ");
+
+    if (maxLines > 0) {
+        preservedLines.push(fitText(overflowText, font, size, maxWidth));
+    }
+
+    return preservedLines;
 }
 
 function sanitizeTextForPdf(value) {
@@ -182,22 +197,21 @@ function drawProductCard(page, lineItem, layout, fonts, logoImage) {
 
     const TEXT_PADDING = 6;
     const maxTextWidth = CARD_WIDTH - TEXT_PADDING * 2;
-    const title = fitText(
-        `${lineItem.sku || "NO-SKU"} ${lineItem.productTitle || lineItem.title || "Untitled Product"}`.trim(),
-        regularFont,
-        HEADER_FONT_SIZE,
-        maxTextWidth
-    );
+    const title = `${lineItem.sku || "NO-SKU"} ${lineItem.productTitle || lineItem.title || "Untitled Product"}`.trim();
+    const titleLines = splitCenteredLines(title, regularFont, HEADER_FONT_SIZE, maxTextWidth, 2);
     const sampleLine = fitText(`Sample size: ${lineItem.variantName || "N/A"}`, regularFont, BODY_FONT_SIZE, maxTextWidth);
     const packedLine = fitText(`Packed: ${lineItem.printDate}`, regularFont, BODY_FONT_SIZE, maxTextWidth);
     const warningLines = splitCenteredLines(FOOTER_NOTE, regularFont, SMALL_FONT_SIZE, maxTextWidth);
 
-    const contentStartY = cardTopY - LOGO_AREA_HEIGHT - 18;
-    const sampleY = contentStartY - 10;
+    const contentStartY = cardTopY - LOGO_AREA_HEIGHT - 14;
+    const titleBlockHeight = Math.max(titleLines.length - 1, 0) * TITLE_LINE_SPACING;
+    const sampleY = contentStartY - titleBlockHeight - 10;
     const packedY = sampleY - 10;
     const warningY = packedY - 8;
 
-    drawCenteredText(page, title, regularFont, HEADER_FONT_SIZE, centerX, contentStartY);
+    for (const [index, line] of titleLines.entries()) {
+        drawCenteredText(page, line, regularFont, HEADER_FONT_SIZE, centerX, contentStartY - index * TITLE_LINE_SPACING);
+    }
     drawCenteredText(page, sampleLine, regularFont, BODY_FONT_SIZE, centerX, sampleY);
     drawCenteredText(page, packedLine, regularFont, BODY_FONT_SIZE, centerX, packedY);
     drawCenteredText(page, warningLines[0] || "", regularFont, SMALL_FONT_SIZE, centerX, warningY);
@@ -224,10 +238,17 @@ async function buildOrdersPdf(orders) {
         let rowY = PAGE_HEIGHT - PAGE_MARGIN;
         let columnIndex = 0;
         let rowCount = 0;
-        const MAX_ROWS_PER_PAGE = 7;
+        const columnWidth = (PAGE_WIDTH - PAGE_MARGIN * 2 - COLUMN_GAP) / COLUMNS_PER_PAGE;
 
         for (const item of allLineItems) {
-            const columnWidth = (PAGE_WIDTH - PAGE_MARGIN * 2 - COLUMN_GAP) / 2;
+            // If there is not enough space for another row, start a new page before drawing.
+            if (columnIndex === 0 && rowY - CARD_HEIGHT < PAGE_MARGIN) {
+                page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+                rowY = PAGE_HEIGHT - PAGE_MARGIN;
+                columnIndex = 0;
+                rowCount = 0;
+            }
+
             const columnX = columnIndex === 0 ? PAGE_MARGIN : PAGE_MARGIN + columnWidth + COLUMN_GAP;
             const x = columnX + (columnWidth - CARD_WIDTH) / 2;
 
@@ -239,9 +260,9 @@ async function buildOrdersPdf(orders) {
                 columnIndex = 0;
                 rowCount++;
 
-                rowY -= CARD_HEIGHT + 16;
+                rowY -= CARD_HEIGHT + ROW_GAP;
 
-                if (rowCount >= MAX_ROWS_PER_PAGE) {
+                if (rowCount >= ROWS_PER_PAGE) {
                     page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
                     rowY = PAGE_HEIGHT - PAGE_MARGIN;
                     columnIndex = 0;

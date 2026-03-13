@@ -71,7 +71,7 @@ The handler accepts both formats:
   "isBase64Encoded": true,
   "headers": {
     "Content-Type": "application/pdf",
-    "Content-Disposition": "attachment; filename=\"labels.pdf\""
+    "Content-Disposition": "attachment; filename=\"Labels.pdf\""
   },
   "body": "<base64 PDF bytes>"
 }
@@ -90,7 +90,7 @@ PDF is generated in memory and streamed in the response — nothing is stored.
 ## PDF layout
 
 - Page size: Letter (612 × 792pt)
-- 2-column grid, up to 7 rows per page
+- 2-column grid, exactly 7 rows per page
 - One card per line item containing: company logo, SKU + product title, sample size (variant), packed date, allergen footer
 
 ## Environment variables
